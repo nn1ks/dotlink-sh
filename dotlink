@@ -1,0 +1,101 @@
+#!/bin/sh
+
+app_name=${0##*/}
+
+usage="$app_name - A dotfiles management tool
+
+USAGE:
+    $app_name [OPTION]...
+
+OPTIONS:
+    -s, --source-dir <path>   Sets the source directory (default: current working directory)
+    -t, --target-dir <path>   Sets the target directory (default: parent directory of source directory)
+    -r, --replace-dot         If a file or directory name begins with 'dot-', it is replaced with '.'
+    -a, --absolute-paths      Uses absolute paths for links instead of relative paths
+    -f, --force               Removes existing destination files
+    -i, --interactive         Prompts whether to remove existing destination files
+    -v, --verbose             Shows verbose output
+    -h, --help                Shows this help message"
+
+while [ $# -gt 0 ]; do
+	case $1 in
+		--source-dir|-s)
+			custom_source_dir=$2
+			shift 2
+			;;
+		--target-dir|-t)
+			custom_target_dir=$2
+			shift 2
+			;;
+		--replace-dot|-r)
+			replace_dot=true
+			shift
+			;;
+		--absolute-paths|-a)
+			absolute_paths=true
+			shift
+			;;
+		--force|-f)
+			ln_force=true
+			shift
+			;;
+		--interactive|-i)
+			ln_interactive=true
+			shift
+			;;
+		--verbose|-v)
+			ln_verbose=true
+			shift
+			;;
+		--help|-h)
+			printf "%s\n" "$usage"
+			exit 0
+			;;
+		*)
+			printf "%s\n" "Unkown option '$1' (try: $app_name --help)"
+			exit 1
+			;;
+	esac
+done
+
+source_dir=${custom_source_dir:-$PWD}
+target_dir=${custom_target_dir:-${source_dir%/*}}
+[ "$absolute_paths" ] || ln_relative=true
+
+exec_ln() {
+	ln --symbolic \
+		${ln_relative:+"--relative"} \
+		${ln_force:+"--force"} \
+		${ln_interactive:+"--interactive"} \
+		${ln_verbose:+"--verbose"} \
+		"$1" "$2"
+}
+
+get_basename() {
+	name=${1%${1##*[!/]}}
+	name=${name##*/}
+	if [ "$replace_dot" ]; then
+		case $name in dot-*)
+			name=".${name##dot-}"
+		esac
+	fi
+	printf "%s\n" "$name"
+}
+
+create_links() {
+	for file in "$1"/* "$1"/.[!.]*; do
+		[ -e "$file" ] || continue
+		source_path=$file
+		target_path=$2/$(get_basename "$file")
+		if [ -d "$target_path" ]; then
+			create_links "$source_path" "$target_path"
+		elif [ "$(readlink -f "$target_path")" != "$source_path" ]; then
+			exec_ln "$source_path" "$target_path"
+		fi
+	done
+}
+
+for dir in "$source_dir"/*/; do
+	dir=${dir%${dir##*[!/]}}
+	[ -d "$dir" ] && create_links "$dir" "$target_dir"
+done
